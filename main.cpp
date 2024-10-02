@@ -17,10 +17,10 @@
 #include <cmath>
 #include <cstddef>
 #include <jack/jack.h>
+#include <memory>
 #include <span>
 #include <type_traits>
 #include <vector>
-#include <memory>
 
 template <typename T> class lock_free_circular_buffer {
 public:
@@ -92,7 +92,7 @@ struct AudioData {
   AudioData(std::size_t size, int sr) : buffer(size), sample_rate(sr) {}
 };
 
-//AudioData *g_audioData = nullptr;
+// AudioData *g_audioData = nullptr;
 std::unique_ptr<AudioData> g_audioData;
 
 jack_client_t *client;
@@ -245,10 +245,6 @@ int main(int, char **) {
   int sample_rate = jack_get_sample_rate(client);
   size_t buffer_size = sample_rate * HISTORY; // Buffer for HISTORY seconds
 
-  // Initialize AudioData with the correct sample rate
-  // g_audioData = new (std::nothrow) AudioData(buffer_size, sample_rate);
-  // g_audioData = std::make_unique<AudioData>(buffer_size, sample_rate);
-
   try {
     g_audioData = std::make_unique<AudioData>(buffer_size, sample_rate);
   } catch (const std::bad_alloc &e) {
@@ -257,19 +253,13 @@ int main(int, char **) {
     // + any other necessary cleanup
   }
 
-  // if (!g_audioData) {
-  //   fprintf(stderr, "Failed to allocate AudioData\n");
-  //   jack_client_close(client);
-  //   return 1;
-  // }
-
   jack_set_process_callback(client, jack_callback, g_audioData.get());
   input_port = jack_port_register(client, "input", JACK_DEFAULT_AUDIO_TYPE,
                                   JackPortIsInput, 0);
   if (!input_port) {
     fprintf(stderr, "Could not register input port\n");
     jack_client_close(client);
-    //delete g_audioData;
+    // delete g_audioData;
     return 1;
   }
 
@@ -329,7 +319,7 @@ int main(int, char **) {
 
   // Cleanup JACK
   jack_client_close(client);
-  //delete g_audioData;
+  // delete g_audioData;
 
   // Cleanup ImGui
   ImGui_ImplOpenGL3_Shutdown();

@@ -20,10 +20,6 @@
 
 #include <SDL_opengl.h>
 
-// This example can also compile and run with Emscripten! See
-// 'Makefile.emscripten' for details. #ifdef __EMSCRIPTEN__ #include
-// "../libs/emscripten/emscripten_mainloop_stub.h" #endif
-
 struct AudioData {
   std::deque<float> buffer;
   std::mutex mutex;
@@ -301,18 +297,14 @@ int main(int, char **) {
   bool show_another_window = false;
   ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.1f, 1.00f);
 
-  // Main loop
+  
+  //////////////////////////////////////////////////////////////////////////
+  //! Main loop
+  //////////////////////////////////////////////////////////////////////////
+
   bool done = false;
-  // #ifdef __EMSCRIPTEN__
-  //   // For an Emscripten build we are disabling file-system access, so let's
-  //   not
-  //   // attempt to do a fopen() of the imgui.ini file. You may manually call
-  //   // LoadIniSettingsFromMemory() to load settings from your own storage.
-  //   io.IniFilename = nullptr;
-  //   EMSCRIPTEN_MAINLOOP_BEGIN
-  // #else
+  
   while (!done)
-  // #endif
   {
     // Poll and handle events (inputs, window resize, etc.)
     // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to
@@ -438,7 +430,7 @@ int main(int, char **) {
   EMSCRIPTEN_MAINLOOP_END;
 #endif
 
-  // Cleanup
+  //! Cleanup PulseAudio
   err = Pa_StopStream(stream);
   if (err != paNoError) {
     fprintf(stderr, "PortAudio error: %s\n", Pa_GetErrorText(err));
@@ -452,7 +444,7 @@ int main(int, char **) {
     fprintf(stderr, "PortAudio error: %s\n", Pa_GetErrorText(err));
   }
 
-  // Cleanup
+  //! Cleanup
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplSDL2_Shutdown();
   ImPlot::DestroyContext();

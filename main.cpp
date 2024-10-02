@@ -1,9 +1,4 @@
-// Dear ImGui: SDL2 + OpenGL
-// - FAQ                  https://dearimgui.com/faq
-// - Getting Started      https://dearimgui.com/getting-started
-// - Documentation        https://dearimgui.com/docs (same as your local docs/
-// folder).
-// - Introduction, links and more at the top of imgui.cpp
+// !DearImGui w/ SDL2 + OpenGL
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -23,8 +18,8 @@
 struct AudioData {
   std::deque<float> buffer;
   std::mutex mutex;
-  size_t max_size = 44100; // 1 second of audio at 44.1kHz
-
+  size_t max_size = 44100;
+  
   void push(float sample) {
     std::lock_guard<std::mutex> lock(mutex);
     if (buffer.size() >= max_size) {
@@ -50,7 +45,7 @@ static int paCallback(const void *inputBuffer, void *outputBuffer,
   return paContinue;
 }
 
-// Function to generate sample audio data (replace with your actual audio input)
+// test function to generate sample audio data 
 float generateAudioSample(float time) {
   return 0.5f * std::sin(2 * M_PI * 440 * time) +
          0.25f * std::sin(2 * M_PI * 880 * time);
@@ -88,6 +83,7 @@ std::vector<double> xs(SAMPLE_COUNT);
 std::vector<double> ys(SAMPLE_COUNT);
 double t = 0;
 
+// PARAMS
 // Parameters for the sine wave
 static float frequency = 2.0f;
 static float amplitude = 1.0f;
@@ -118,7 +114,10 @@ void ShowMovingSineWave() {
   }
 }
 
-// Main code
+// !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!!
+// ! MAIN LOOP
+// !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!!
+
 int main(int, char **) {
   // Setup SDL
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) !=
@@ -179,7 +178,7 @@ int main(int, char **) {
   ImGuiIO &io = ImGui::GetIO();
   (void)io;
 
-  // Load custom font
+  // ! Load custom font
   ImFont *font = io.Fonts->AddFontFromFileTTF(
       "/home/smoge/tmp/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f);
   IM_ASSERT(font != NULL);
@@ -263,7 +262,11 @@ int main(int, char **) {
   // io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f,
   // nullptr, io.Fonts->GetGlyphRangesJapanese()); IM_ASSERT(font != nullptr);
 
-  // Initialize PortAudio
+  
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!
+  // ! Initialize PortAudio
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!
+
   PaError err;
   PaStream *stream = nullptr;
 
@@ -297,11 +300,8 @@ int main(int, char **) {
   bool show_another_window = false;
   ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.1f, 1.00f);
 
-  
-  //////////////////////////////////////////////////////////////////////////
+  // !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!!
   //! Main loop
-  //////////////////////////////////////////////////////////////////////////
-
   bool done = false;
   
   while (!done)
@@ -426,10 +426,8 @@ int main(int, char **) {
 
     SDL_GL_SwapWindow(window);
   }
-#ifdef __EMSCRIPTEN__
-  EMSCRIPTEN_MAINLOOP_END;
-#endif
 
+  // !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!!
   //! Cleanup PulseAudio
   err = Pa_StopStream(stream);
   if (err != paNoError) {
@@ -444,6 +442,7 @@ int main(int, char **) {
     fprintf(stderr, "PortAudio error: %s\n", Pa_GetErrorText(err));
   }
 
+  // !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!! !!!!
   //! Cleanup
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplSDL2_Shutdown();

@@ -2,11 +2,12 @@ cmake_minimum_required(VERSION 3.10)
 project(DearAudio VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Option for build type
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build (Debug or Release)" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build (Debug or Release)" FORCE)
 endif()
 
 # Set the path to your Dear ImGui directory
@@ -22,7 +23,7 @@ pkg_check_modules(JACK REQUIRED jack)
 
 # Set OpenGL preference to GLVND
 if(POLICY CMP0072)
-  cmake_policy(SET CMP0072 NEW)
+    cmake_policy(SET CMP0072 NEW)
 endif()
 set(OpenGL_GL_PREFERENCE GLVND)
 
@@ -31,12 +32,21 @@ find_package(OpenGL REQUIRED)
 
 # Manually linking FFTW since find_package(FFTW) did not work
 set(FFTW_LIB /usr/lib64/libfftw3f.so)
-find_library(FFTW_LIB NAMES fftw3f PATHS /usr/lib64)
+find_library(FFTW_LIB NAMES fftw3f PATHS /usr/lib64 REQUIRED)
+
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP true
+)
+FetchContent_MakeAvailable(googletest)
 
 # Source files
 set(SOURCES
     main.cpp
     ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui.h
     ${IMGUI_DIR}/imgui_demo.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
@@ -71,7 +81,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # Platform-specific settings
 if(UNIX AND NOT APPLE)
     # Linux
-    target_link_libraries(${PROJECT_NAME} PRIVATE dl)
+    target_link_libraries(${PROJECT_NAME} PRIVATE dl pthread)
 elseif(APPLE)
     # macOS
     target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -105,3 +115,34 @@ install(TARGETS ${PROJECT_NAME}
 
 # Enable testing
 enable_testing()
+include(GoogleTest)
+
+add_executable(test_lock_free_circular_buffer
+    tests/test_lock_free_circular_buffer.cpp
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_demo.cpp
+    ${IMPLOT_DIR}/implot_items.cpp
+)
+
+target_link_libraries(test_lock_free_circular_buffer PRIVATE
+    gtest_main
+    glfw
+    OpenGL::GL
+    ${JACK_LIBRARIES}
+    ${FFTW_LIB}
+)
+
+target_include_directories(test_lock_free_circular_buffer PRIVATE
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${IMPLOT_DIR}
+)
+
+gtest_discover_tests(test_lock_free_circular_buffer)

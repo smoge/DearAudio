@@ -76,3 +76,4 @@ build/
 build2/
 .idea/
 cmake-build-debug/
+.cache/

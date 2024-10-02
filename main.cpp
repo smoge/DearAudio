@@ -127,10 +127,6 @@ void show_audio_waveform() {
   uint64_t total_samples =
       g_audioData->total_samples.load(std::memory_order_relaxed);
 
-
-  // uint64_t total_samples =
-  //     g_audioData->total_samples.load(std::memory_order_relaxed);
-  
   float current_time =
       static_cast<float>(total_samples) / g_audioData->sample_rate;
 
@@ -252,7 +248,7 @@ int main(int, char **) {
   // Initialize AudioData with the correct sample rate
   // g_audioData = new (std::nothrow) AudioData(buffer_size, sample_rate);
   // g_audioData = std::make_unique<AudioData>(buffer_size, sample_rate);
-  
+
   try {
     g_audioData = std::make_unique<AudioData>(buffer_size, sample_rate);
   } catch (const std::bad_alloc &e) {

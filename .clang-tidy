@@ -1,0 +1,69 @@
+---
+Checks: >
+  -*,
+  cert-*,
+  cppcoreguidelines-*,
+  google-*,
+  modernize-*,
+  readability-*,
+  readability-braces-around-statements,
+  readability-else-after-return,
+  readability-inconsistent-declaration-parameter-name,
+  readability-magic-numbers,
+  readability-redundant-member-init,
+  readability-static-accessed-through-instance
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'
+AnalyzeTemporaryDtors: true
+FormatStyle: file
+CheckOptions:
+  - key:             readability-magic-numbers.IgnoreAllFloatingPoint
+    value:           'false'
+  - key:             readability-magic-numbers.IgnoreAllInteger
+    value:           'false'
+  - key:             modernize-use-trailing-return-type.UseWhenNotSimple
+    value:           'true'
+  - key:             modernize-use-trailing-return-type.UseForLambda
+    value:           'true'
+  - key:             modernize-use-trailing-return-type.UseWhenSeparate
+    value:           'true'
+  - key:             google-readability-todo.VariadicMacro
+    value:           'true'
+  - key:             google-readability-function-size.StatementThreshold
+    value:           '800'
+  - key:             cppcoreguidelines-avoid-magic-numbers.IgnoreAllFloatingPoint
+    value:           'true'
+  - key:             cppcoreguidelines-avoid-magic-numbers.IgnoreAllInteger
+    value:           'false'
+  - key:             performance-unnecessary-copy-initialization.EnableMove
+    value:           'true'
+  - key:             modernize-use-auto.MinTypeNameLength
+    value:           '5'
+  - key:             modernize-use-default-member-init.IgnoreNoConstructor
+    value:           'true'
+  - key:             modernize-use-using.MinLength
+    value:           '4'
+  - key:             modernize-use-nullptr.IgnoreMacros
+    value:           'true'
+  - key:             readability-magic-numbers.IntegralRegex
+    value:           '^[0-9]+'
+  - key:             readability-magic-numbers.FloatingPointRegex
+    value:           '^[0-9]+\\.[0-9]+'
+
+
+Checks: '-*,readability-identifier-naming'
+CheckOptions:
+  - { key: readability-identifier-naming.VariableCase, value: lower_case }
+  - { key: readability-identifier-naming.GlobalVariableCase, value: lower_case }
+  - { key: readability-identifier-naming.MemberVariableCase, value: lower_case }
+  - { key: readability-identifier-naming.FunctionCase, value: lower_case }
+  - { key: readability-identifier-naming.ClassCase, value: lower_case }
+  - { key: readability-identifier-naming.StructCase, value: lower_case }
+  - { key: readability-identifier-naming.EnumCase, value: lower_case }
+  - { key: readability-identifier-naming.EnumConstantCase, value: CamelCase }
+  - { key: readability-identifier-naming.ConstantCase, value: camelBack }
+  - { key: readability-identifier-naming.ParameterCase, value: lower_case }
+  - { key: readability-identifier-naming.PrivateMemberPrefix, value: 'm_' }
+  - { key: readability-identifier-naming.StaticConstantCase, value: camelBack }
+  - { key: readability-identifier-naming.StaticVariableCase, value: camelBack }

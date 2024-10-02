@@ -46,37 +46,6 @@ int jackCallback(jack_nframes_t nframes, void *arg) {
   return 0;
 }
 
-// Function to compute the spectrogram
-// void computeSpectrogram(const std::vector<float> &inputSignal, int windowSize,
-//                         int hopSize, int fftSize,
-//                         std::vector<std::vector<float>> &spectrogram) {
-//   int numWindows = (inputSignal.size() - windowSize) / hopSize + 1;
-//   spectrogram.resize(numWindows, std::vector<float>(fftSize / 2 + 1, 0.0f));
-
-//   std::vector<float> window(windowSize);
-//   fftwf_complex *out =
-//       (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
-//   fftwf_plan p =
-//       fftwf_plan_dft_r2c_1d(fftSize, window.data(), out, FFTW_ESTIMATE);
-
-//   for (int i = 0; i < numWindows; ++i) {
-//     int startIdx = i * hopSize;
-//     for (int j = 0; j < windowSize; ++j) {
-//       window[j] = inputSignal[startIdx + j];
-//     }
-
-//     fftwf_execute(p);
-
-//     for (int k = 0; k < fftSize / 2 + 1; ++k) {
-//       spectrogram[i][k] =
-//           std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
-//     }
-//   }
-
-//   fftwf_destroy_plan(p);
-//   fftwf_free(out);
-// }
-
 void computeSpectrogram(const std::vector<float> &inputSignal, int windowSize,
                         int hopSize, int fftSize,
                         std::vector<std::vector<float>> &spectrogram) {
@@ -136,7 +105,7 @@ void normalizeSpectrogram(std::vector<std::vector<float>> &spectrogram) {
 
 int maxSpectrogramValue = 1.0f;
 
-    // Function to plot the spectrogram
+// Function to plot the spectrogram
 void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
   int numWindows = spectrogram.size();
   int numFreqBins = spectrogram[0].size();
@@ -153,7 +122,8 @@ void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
     ImPlot::SetupAxisLimits(ImAxis_Y1, 1, numFreqBins);
 
     // Plot the heatmap
-    // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
+    // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(),
+    // numFreqBins,
     //                     numWindows, 0, 1, nullptr, ImPlotPoint(0, 0),
     //                     ImPlotPoint(numWindows, numFreqBins));
 
@@ -194,24 +164,6 @@ void ShowAudioWaveform() {
   t = ImGui::GetTime();
 }
 
-// Function to show the spectrogram
-// void ShowSpectrogram() {
-//   std::lock_guard<std::mutex> lock(audioData.mutex);
-//   if (audioData.buffer.size() >= windowSize) {
-//     std::vector<float> audioBuffer(audioData.buffer.begin(),
-//                                    audioData.buffer.end());
-//     computeSpectrogram(audioBuffer, windowSize, hopSize, fftSize,
-//                        spectrogramData);
-//   }
-
-//   if (!spectrogramData.empty()) {
-//     ImGui::Begin("Spectrogram");
-    
-//     plotSpectrogram(spectrogramData);
-//     ImGui::End();
-//   }
-// }
-
 void ShowSpectrogram() {
   std::vector<float> audioBuffer;
 
@@ -240,7 +192,6 @@ void ShowSpectrogram() {
     }
   }
 }
-
 
 // Main function
 int main(int, char **) {

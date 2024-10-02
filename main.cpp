@@ -2,10 +2,13 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
+
 #define GL_SILENCE_DEPRECATION
+
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
 #endif
+
 #include <GLFW/glfw3.h>
 
 #include "implot.h"
@@ -85,35 +88,44 @@ int jackCallback(jack_nframes_t nframes, void *arg) {
   return 0;
 }
 
+// Declare these variables outside the function
+static std::vector<float> x;
+static std::vector<float> y;
+static float timeOffset = 0.0f; // Keeps track of the global time offset
+
 void ShowAudioWaveform() {
-  static float t = ImGui::GetTime();
-  static float history = 5.0f; //  5 seconds / history
+  // Instead of using ImGui::GetTime(), maintain a consistent time based on the
+  // sample rate
+  static float history = 5.0f; // 5 seconds of history
+
+  // Increment time offset by the time difference based on the audio buffer
+  size_t buffer_size = audioData.buffer.size();
+  float timeIncrement = buffer_size / 44100.0f;
+  timeOffset += timeIncrement;
 
   if (ImPlot::BeginPlot("Audio Waveform")) {
-    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t,
-                            ImGuiCond_Always);       // X-axis: Time
-    ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f); // Y-axis: Amplitude
+    ImPlot::SetupAxisLimits(ImAxis_X1, timeOffset - history, timeOffset,
+                            ImGuiCond_Always);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f);
 
-    std::vector<float> x, y;
+    // Resize the vectors if necessary
+    x.resize(buffer_size);
+    y.resize(buffer_size);
+
     float sample;
-    size_t buffer_size = audioData.buffer.size(); // Check the buffer size
-
-    // Read data from the buffer using peek()
     for (size_t i = 0; i < buffer_size; ++i) {
-      if (audioData.buffer.peek(i, sample)) { // Safely peek data
-        float time = t - ((buffer_size - i) /
-                          44100.0f); // Calculate time for each sample
-        x.push_back(time);           // X values are the timestamps
-        y.push_back(sample);         // Y values are the waveform samples
+      if (audioData.buffer.peek(i, sample)) {
+        // Align the time with the buffer and the sample rate
+        float time = timeOffset - ((buffer_size - i) / 44100.0f);
+        x[i] = time;
+        y[i] = sample;
       }
     }
 
-    // Plot  waveform
+    // Plot the waveform
     ImPlot::PlotLine("Waveform", x.data(), y.data(), x.size());
     ImPlot::EndPlot();
   }
-
-  t = ImGui::GetTime(); // Update time
 }
 
 // GLFW error callback

@@ -13,8 +13,8 @@ endif()
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/implot)
 
-# Find SDL2
-find_package(SDL2 REQUIRED)
+# Find GLFW
+find_package(glfw3 REQUIRED)
 
 # Find JACK
 find_package(PkgConfig REQUIRED)
@@ -29,7 +29,7 @@ set(OpenGL_GL_PREFERENCE GLVND)
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 
-# Manually link FFTW since find_package(FFTW) did not work
+# Manually linking FFTW since find_package(FFTW) did not work
 set(FFTW_LIB /usr/lib64/libfftw3f.so)
 find_library(FFTW_LIB NAMES fftw3f PATHS /usr/lib64)
 
@@ -41,7 +41,7 @@ set(SOURCES
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
     ${IMPLOT_DIR}/implot.cpp
     ${IMPLOT_DIR}/implot_demo.cpp
@@ -55,14 +55,14 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
-    ${SDL2_INCLUDE_DIRS}
     ${IMPLOT_DIR}
     ${JACK_INCLUDE_DIRS}
+    ${GLFW_INCLUDE_DIRS}
 )
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${SDL2_LIBRARIES}
+    glfw
     OpenGL::GL
     ${JACK_LIBRARIES}
     ${FFTW_LIB}

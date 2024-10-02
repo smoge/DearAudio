@@ -1,313 +1,191 @@
 #include "imgui.h"
+#include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-#include "imgui_impl_sdl2.h"
+#include <stdio.h>
+#define GL_SILENCE_DEPRECATION
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+#include <GLES2/gl2.h>
+#endif
+#include <GLFW/glfw3.h>
+
 #include "implot.h"
-#include <SDL.h>
-#include <SDL_opengl.h>
+
+#include <atomic>
 #include <cmath>
-#include <deque>
-#include <fftw3.h>
 #include <jack/jack.h>
-#include <mutex>
 #include <stdio.h>
 #include <vector>
 
-// Define the audio data structure for buffering the audio signal
-struct AudioData {
-  std::deque<float> buffer;
-  std::mutex mutex;
-  size_t max_size = 44100; // Buffer size for 1 second
+template <typename T> class LockFreeCircularBuffer {
+public:
+  explicit LockFreeCircularBuffer(size_t size)
+      : buffer(size), max_size(size), head(0), tail(0) {}
+
+  // Push to buffer, overwriting old data if full
+  void push(T value) {
+    size_t next = (head + 1) % max_size;
+    if (next != tail.load()) {
+      buffer[head] = value;
+      head = next;
+    } else {
+      // Overwrite the oldest value if the buffer is full
+      tail.store((tail + 1) % max_size);
+      buffer[head] = value;
+      head = next;
+    }
+  }
+
+  // Pop from buffer, return false if empty
+  bool pop(T &value) {
+    if (head == tail.load()) {
+      return false; // Buffer empty
+    }
+    value = buffer[tail];
+    tail.store((tail + 1) % max_size);
+    return true;
+  }
+
+  // Peek at buffer, return value at position without consuming it
+  bool peek(size_t index, T &value) const {
+    if (index >= size()) {
+      return false; // Index out of bounds
+    }
+    value = buffer[(tail + index) % max_size];
+    return true;
+  }
+
+  size_t size() const { return (head + max_size - tail.load()) % max_size; }
+
+private:
+  std::vector<T> buffer;
+  size_t max_size;
+  size_t head;
+  std::atomic<size_t> tail;
 };
 
-AudioData audioData;
+struct AudioData {
+  LockFreeCircularBuffer<float> buffer; // Lock-free circular buffer
+  explicit AudioData(size_t size) : buffer(size) {}
+};
+
+AudioData audioData(44100 *
+                    10); // Buffer size for 10 seconds of audio at 44100hz
 jack_client_t *client;
 jack_port_t *input_port;
 
-// Spectrogram settings
-static const int windowSize = 1024;
-static const int hopSize = 256;
-static const int fftSize = 1024;
-std::vector<std::vector<float>> spectrogramData;
-
-// Process callback for JACK
+// Process callback for JACK (real-time thread)
 int jackCallback(jack_nframes_t nframes, void *arg) {
-  AudioData *audioData = (AudioData *)arg;
   jack_default_audio_sample_t *in =
       (jack_default_audio_sample_t *)jack_port_get_buffer(input_port, nframes);
 
-  std::lock_guard<std::mutex> lock(audioData->mutex);
   for (jack_nframes_t i = 0; i < nframes; ++i) {
-    audioData->buffer.push_back(in[i]);
-    if (audioData->buffer.size() > audioData->max_size) {
-      audioData->buffer.pop_front();
-    }
+    audioData.buffer.push(in[i]); // Lock-free push
   }
 
   return 0;
 }
 
-void computeSpectrogram(const std::vector<float> &inputSignal, int windowSize,
-                        int hopSize, int fftSize,
-                        std::vector<std::vector<float>> &spectrogram) {
-  int numWindows = (inputSignal.size() - windowSize) / hopSize + 1;
-  spectrogram.resize(numWindows, std::vector<float>(fftSize / 2 + 1, 0.0f));
-
-  std::vector<float> window(windowSize);
-  fftwf_complex *out =
-      (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
-  fftwf_plan p =
-      fftwf_plan_dft_r2c_1d(fftSize, window.data(), out, FFTW_ESTIMATE);
-
-  // Create a Hanning window
-  std::vector<float> hanningWindow(windowSize);
-  for (int i = 0; i < windowSize; ++i) {
-    hanningWindow[i] =
-        0.5f * (1.0f - std::cos(2.0f * M_PI * i / (windowSize - 1)));
-  }
-
-  for (int i = 0; i < numWindows; ++i) {
-    int startIdx = i * hopSize;
-    for (int j = 0; j < windowSize; ++j) {
-      window[j] =
-          inputSignal[startIdx + j] * hanningWindow[j]; // Apply window function
-    }
-
-    fftwf_execute(p);
-
-    for (int k = 0; k < fftSize / 2 + 1; ++k) {
-      spectrogram[i][k] =
-          std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
-    }
-  }
-
-  fftwf_destroy_plan(p);
-  fftwf_free(out);
-}
-
-void normalizeSpectrogram(std::vector<std::vector<float>> &spectrogram) {
-  float maxVal = 1.0f;
-  for (const auto &window : spectrogram) {
-    for (float value : window) {
-      if (value > maxVal) {
-        maxVal = value;
-      }
-    }
-  }
-
-  if (maxVal > 0.0f) {
-    for (auto &window : spectrogram) {
-      for (float &value : window) {
-        value /= maxVal; // Normalize values to the range [0, 1]
-      }
-    }
-  }
-}
-
-int maxSpectrogramValue = 1.0f;
-
-// Function to plot the spectrogram
-// void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
-//   int numWindows = spectrogram.size();
-//   int numFreqBins = spectrogram[0].size();
-
-//   // Flatten the 2D data for ImPlot's heatmap
-//   std::vector<float> heatmapData;
-//   for (const auto &window : spectrogram) {
-//     heatmapData.insert(heatmapData.end(), window.begin(), window.end());
-//   }
-
-//   if (ImPlot::BeginPlot("Spectrogram")) {
-//     ImPlot::SetupAxes("Time", "Frequency");
-//     ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows);
-//     ImPlot::SetupAxisLimits(ImAxis_Y1, 1, numFreqBins);
-
-//     // Plot the heatmap
-//     // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(),
-//     // numFreqBins,
-//     //                     numWindows, 0, 1, nullptr, ImPlotPoint(0, 0),
-//     //                     ImPlotPoint(numWindows, numFreqBins));
-
-//     ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
-//                         numWindows, 0, maxSpectrogramValue, nullptr,
-//                         ImPlotPoint(0, 0),
-//                         ImPlotPoint(numWindows, numFreqBins));
-
-//     ImPlot::EndPlot();
-//   }
-// }
-
-void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram
-                     ) {
-                      
-  int numWindows = spectrogram.size();
-  int numFreqBins = spectrogram[0].size();
-
-  float minVal = 0.0f;
-  float maxVal = 1.0f;
-                    // Flatten the 2D data for ImPlot's heatmap
-                    std::vector<float>
-                        heatmapData;
-  for (const auto &window : spectrogram) {
-    heatmapData.insert(heatmapData.end(), window.begin(), window.end());
-  }
-
-  if (ImPlot::BeginPlot("Spectrogram")) {
-    ImPlot::SetupAxes("Time (s)", "Frequency (Hz)");
-    ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows); // X axis: time windows
-    ImPlot::SetupAxisLimits(ImAxis_Y1, 0,
-                            numFreqBins); // Y axis: frequency bins
-
-    ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
-                        numWindows, minVal, maxVal, nullptr, ImPlotPoint(0, 0),
-                        ImPlotPoint(numWindows, numFreqBins));
-    ImPlot::EndPlot();
-  }
-}
-
-
-// Function to show the audio waveform
 void ShowAudioWaveform() {
   static float t = ImGui::GetTime();
-  static float history = 0.1f; // Show 0.1 seconds of history
+  static float history = 5.0f; //  5 seconds / history
 
   if (ImPlot::BeginPlot("Audio Waveform")) {
-    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-    ImPlot::SetupAxisLimits(ImAxis_Y1, -1, 1);
+    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t,
+                            ImGuiCond_Always);       // X-axis: Time
+    ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f); // Y-axis: Amplitude
 
     std::vector<float> x, y;
-    {
-      std::lock_guard<std::mutex> lock(audioData.mutex);
-      size_t num_samples =
-          std::min(audioData.buffer.size(), size_t(history * 44100));
-      x.resize(num_samples);
-      y.resize(num_samples);
-      for (size_t i = 0; i < num_samples; ++i) {
-        x[i] = t - (num_samples - i) * (1.0f / 44100);
-        y[i] = audioData.buffer[audioData.buffer.size() - num_samples + i];
+    float sample;
+    size_t buffer_size = audioData.buffer.size(); // Check the buffer size
+
+    // Read data from the buffer using peek()
+    for (size_t i = 0; i < buffer_size; ++i) {
+      if (audioData.buffer.peek(i, sample)) { // Safely peek data
+        float time = t - ((buffer_size - i) /
+                          44100.0f); // Calculate time for each sample
+        x.push_back(time);           // X values are the timestamps
+        y.push_back(sample);         // Y values are the waveform samples
       }
     }
 
+    // Plot  waveform
     ImPlot::PlotLine("Waveform", x.data(), y.data(), x.size());
     ImPlot::EndPlot();
   }
-  t = ImGui::GetTime();
+
+  t = ImGui::GetTime(); // Update time
 }
 
-void ShowSpectrogram() {
-  std::vector<float> audioBuffer;
-
-  // Lock the mutex and copy the buffer to avoid holding the lock for too long
-  {
-    std::lock_guard<std::mutex> lock(audioData.mutex);
-    if (audioData.buffer.size() >= windowSize) {
-      audioBuffer.assign(audioData.buffer.begin(), audioData.buffer.end());
-    }
-  }
-
-  // Check if we have enough data to compute the spectrogram
-  if (audioBuffer.size() >= windowSize) {
-    // Compute the spectrogram
-    computeSpectrogram(audioBuffer, windowSize, hopSize, fftSize,
-                       spectrogramData);
-
-    // Normalize the computed spectrogram
-    normalizeSpectrogram(spectrogramData);
-
-    // Display the spectrogram
-    if (!spectrogramData.empty()) {
-      ImGui::Begin("Spectrogram");
-      plotSpectrogram(spectrogramData);
-      ImGui::End();
-    }
-  }
+// GLFW error callback
+static void glfw_error_callback(int error, const char *description) {
+  fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-// Main function
 int main(int, char **) {
-  // Setup SDL
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) !=
-      0) {
-    printf("Error: %s\n", SDL_GetError());
-    return -1;
-  }
+  // Setup GLFW
+  glfwSetErrorCallback(glfw_error_callback);
+  if (!glfwInit())
+    return 1;
 
-  // Decide GL+GLSL versions
+    // Setup OpenGL
+// Decide GL+GLSL versions
 #if defined(IMGUI_IMPL_OPENGL_ES2)
+  // GL ES 2.0 + GLSL 100
   const char *glsl_version = "#version 100";
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 #elif defined(__APPLE__)
+  // GL 3.2 + GLSL 150
   const char *glsl_version = "#version 150";
-  SDL_GL_SetAttribute(
-      SDL_GL_CONTEXT_FLAGS,
-      SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // 3.2+ only
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Required on Mac
 #else
-  const char *glsl_version = "#version 130";
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+  // GL 3.2 + GLSL 150 for cross-platform (Linux/Windows)
+  const char *glsl_version = "#version 150";
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // Set to 3.2
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+  glfwWindowHint(
+      GLFW_OPENGL_PROFILE,
+      GLFW_OPENGL_CORE_PROFILE); // Ensure it's using the core profile
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Mac compatibility
 #endif
 
-  SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
-
-  // Create window with graphics context
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-  SDL_WindowFlags window_flags =
-      (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
-                        SDL_WINDOW_ALLOW_HIGHDPI);
-  SDL_Window *window = SDL_CreateWindow(
-      "Dear ImGui SDL2+OpenGL3 example", SDL_WINDOWPOS_CENTERED,
-      SDL_WINDOWPOS_CENTERED, 1280, 720, window_flags);
-  if (window == nullptr) {
-    printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
-    return -1;
-  }
-  SDL_GLContext gl_context = SDL_GL_CreateContext(window);
-  SDL_GL_MakeCurrent(window, gl_context);
-  SDL_GL_SetSwapInterval(1); // Enable vsync
+  // Create window
+  GLFWwindow *window =
+      glfwCreateWindow(1280, 720, "Audio Waveform", nullptr, nullptr);
+  if (window == nullptr)
+    return 1;
+  glfwMakeContextCurrent(window);
+  glfwSwapInterval(1); // Enable vsync
 
   // Setup ImGui context
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   (void)io;
-
-  // Load custom font
-  ImFont *font =
-      io.Fonts->AddFontFromFileTTF("../fonts/Roboto-Medium.ttf", 16.0f);
-  IM_ASSERT(font != NULL);
-
   io.ConfigFlags |=
       ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
   io.ConfigFlags |=
       ImGuiConfigFlags_NavEnableGamepad;              // Enable Gamepad Controls
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;   // Enable Docking
-  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport
-
-  io.FontDefault = font;
-  io.Fonts->Build();
-
-  ////////////////////////////
-  // Setup ImPlot context
-  ImPlot::CreateContext();
+  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport /
+                                                      // Platform Windows
 
   // Setup Dear ImGui style
   ImGui::StyleColorsDark();
 
   // Setup Platform/Renderer backends
-  ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
   ImGui_ImplOpenGL3_Init(glsl_version);
 
+  // Setup ImPlot context
+  ImPlot::CreateContext();
+
   // Initialize JACK
-  const char *client_name = "imgui_audio";
+  const char *client_name = "audio_waveform";
   jack_options_t options = JackNullOption;
   client = jack_client_open(client_name, options, nullptr);
   if (!client) {
@@ -345,74 +223,50 @@ int main(int, char **) {
   free(ports);
 
   // Main loop
-  bool done = false;
-  while (!done) {
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-      ImGui_ImplSDL2_ProcessEvent(&event);
-      if (event.type == SDL_QUIT)
-        done = true;
-      if (event.type == SDL_WINDOWEVENT &&
-          event.window.event == SDL_WINDOWEVENT_CLOSE &&
-          event.window.windowID == SDL_GetWindowID(window))
-        done = true;
-    }
-    if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) {
-      SDL_Delay(10);
-      continue;
-    }
+  while (!glfwWindowShouldClose(window)) {
+    glfwPollEvents();
 
-    // Start the Dear ImGui frame
+    // Start the ImGui frame
     ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Show the demo window
-    static bool show_demo_window = true;
-    if (show_demo_window)
-      ImGui::ShowDemoWindow(&show_demo_window);
-
     // Show the audio waveform
-    ImGui::Begin("Audio Visualizer");
+    ImGui::Begin("Audio Waveform Visualizer");
     ShowAudioWaveform();
-    ImGui::End();
-
-    // Show the spectrogram
-    ImGui::Begin("Spectrum Visualizer");
-    ShowSpectrogram();
     ImGui::End();
 
     // Rendering
     ImGui::Render();
-    glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    int display_w, display_h;
+    glfwGetFramebufferSize(window, &display_w, &display_h);
+    glViewport(0, 0, display_w, display_h);
     glClearColor(0.1f, 0.1f, 0.1f, 1.00f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-    // Handle multiple viewports
+    // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-      SDL_Window *backup_current_window = SDL_GL_GetCurrentWindow();
-      SDL_GLContext backup_current_context = SDL_GL_GetCurrentContext();
+      GLFWwindow *backup_current_context = glfwGetCurrentContext();
       ImGui::UpdatePlatformWindows();
       ImGui::RenderPlatformWindowsDefault();
-      SDL_GL_MakeCurrent(backup_current_window, backup_current_context);
+      glfwMakeContextCurrent(backup_current_context);
     }
 
-    SDL_GL_SwapWindow(window);
+    glfwSwapBuffers(window);
   }
 
   // Cleanup JACK
   jack_client_close(client);
 
-  // Cleanup SDL and ImGui
+  // Cleanup ImGui
   ImGui_ImplOpenGL3_Shutdown();
-  ImGui_ImplSDL2_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
   ImPlot::DestroyContext();
   ImGui::DestroyContext();
 
-  SDL_GL_DeleteContext(gl_context);
-  SDL_DestroyWindow(window);
-  SDL_Quit();
+  glfwDestroyWindow(window);
+  glfwTerminate();
 
   return 0;
 }

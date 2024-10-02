@@ -3,61 +3,170 @@
 #include "imgui_impl_sdl2.h"
 #include "implot.h"
 #include <SDL.h>
+#include <SDL_opengl.h>
 #include <cmath>
+#include <deque>
+#include <fftw3.h>
+#include <jack/jack.h>
+#include <mutex>
 #include <stdio.h>
 #include <vector>
 
-#include <deque>
-#include <mutex>
-
-#include <SDL_opengl.h>
-
-#include <jack/jack.h> 
-
+// Define the audio data structure for buffering the audio signal
 struct AudioData {
   std::deque<float> buffer;
   std::mutex mutex;
-  size_t max_size = 44100; // Buffer size for 1 second 
-
-  void push(float sample) {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (buffer.size() >= max_size) {
-      buffer.pop_front();
-    }
-    buffer.push_back(sample);
-  }
+  size_t max_size = 44100; // Buffer size for 1 second
 };
 
 AudioData audioData;
-jack_client_t *client;   // JACK client
-jack_port_t *input_port; // JACK input port
+jack_client_t *client;
+jack_port_t *input_port;
 
+// Spectrogram settings
+static const int windowSize = 2048;
+static const int hopSize = 64;
+static const int fftSize = 4096;
+std::vector<std::vector<float>> spectrogramData;
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-// !JACK audio callback function
-
+// Process callback for JACK
 int jackCallback(jack_nframes_t nframes, void *arg) {
+  AudioData *audioData = (AudioData *)arg;
   jack_default_audio_sample_t *in =
       (jack_default_audio_sample_t *)jack_port_get_buffer(input_port, nframes);
-  AudioData *data = (AudioData *)arg;
 
-  // Process incoming audio frames
-  for (unsigned int i = 0; i < nframes; i++) {
-    data->push(in[i]);
+  std::lock_guard<std::mutex> lock(audioData->mutex);
+  for (jack_nframes_t i = 0; i < nframes; ++i) {
+    audioData->buffer.push_back(in[i]);
+    if (audioData->buffer.size() > audioData->max_size) {
+      audioData->buffer.pop_front();
+    }
   }
 
   return 0;
 }
 
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Function to compute the spectrogram
+// void computeSpectrogram(const std::vector<float> &inputSignal, int windowSize,
+//                         int hopSize, int fftSize,
+//                         std::vector<std::vector<float>> &spectrogram) {
+//   int numWindows = (inputSignal.size() - windowSize) / hopSize + 1;
+//   spectrogram.resize(numWindows, std::vector<float>(fftSize / 2 + 1, 0.0f));
 
+//   std::vector<float> window(windowSize);
+//   fftwf_complex *out =
+//       (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
+//   fftwf_plan p =
+//       fftwf_plan_dft_r2c_1d(fftSize, window.data(), out, FFTW_ESTIMATE);
 
-// Test function to generate sample audio data
-float generateAudioSample(float time) {
-  return 0.5f * std::sin(2 * M_PI * 440 * time) +
-         0.25f * std::sin(2 * M_PI * 880 * time);
+//   for (int i = 0; i < numWindows; ++i) {
+//     int startIdx = i * hopSize;
+//     for (int j = 0; j < windowSize; ++j) {
+//       window[j] = inputSignal[startIdx + j];
+//     }
+
+//     fftwf_execute(p);
+
+//     for (int k = 0; k < fftSize / 2 + 1; ++k) {
+//       spectrogram[i][k] =
+//           std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
+//     }
+//   }
+
+//   fftwf_destroy_plan(p);
+//   fftwf_free(out);
+// }
+
+void computeSpectrogram(const std::vector<float> &inputSignal, int windowSize,
+                        int hopSize, int fftSize,
+                        std::vector<std::vector<float>> &spectrogram) {
+  int numWindows = (inputSignal.size() - windowSize) / hopSize + 1;
+  spectrogram.resize(numWindows, std::vector<float>(fftSize / 2 + 1, 0.0f));
+
+  std::vector<float> window(windowSize);
+  fftwf_complex *out =
+      (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
+  fftwf_plan p =
+      fftwf_plan_dft_r2c_1d(fftSize, window.data(), out, FFTW_ESTIMATE);
+
+  // Create a Hanning window
+  std::vector<float> hanningWindow(windowSize);
+  for (int i = 0; i < windowSize; ++i) {
+    hanningWindow[i] =
+        0.5f * (1.0f - std::cos(2.0f * M_PI * i / (windowSize - 1)));
+  }
+
+  for (int i = 0; i < numWindows; ++i) {
+    int startIdx = i * hopSize;
+    for (int j = 0; j < windowSize; ++j) {
+      window[j] =
+          inputSignal[startIdx + j] * hanningWindow[j]; // Apply window function
+    }
+
+    fftwf_execute(p);
+
+    for (int k = 0; k < fftSize / 2 + 1; ++k) {
+      spectrogram[i][k] =
+          std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
+    }
+  }
+
+  fftwf_destroy_plan(p);
+  fftwf_free(out);
 }
 
+void normalizeSpectrogram(std::vector<std::vector<float>> &spectrogram) {
+  float maxVal = 1.0f;
+  for (const auto &window : spectrogram) {
+    for (float value : window) {
+      if (value > maxVal) {
+        maxVal = value;
+      }
+    }
+  }
+
+  if (maxVal > 0.0f) {
+    for (auto &window : spectrogram) {
+      for (float &value : window) {
+        value /= maxVal; // Normalize values to the range [0, 1]
+      }
+    }
+  }
+}
+
+int maxSpectrogramValue = 1.0f;
+
+    // Function to plot the spectrogram
+void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
+  int numWindows = spectrogram.size();
+  int numFreqBins = spectrogram[0].size();
+
+  // Flatten the 2D data for ImPlot's heatmap
+  std::vector<float> heatmapData;
+  for (const auto &window : spectrogram) {
+    heatmapData.insert(heatmapData.end(), window.begin(), window.end());
+  }
+
+  if (ImPlot::BeginPlot("Spectrogram")) {
+    ImPlot::SetupAxes("Time", "Frequency");
+    ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows);
+    ImPlot::SetupAxisLimits(ImAxis_Y1, 1, numFreqBins);
+
+    // Plot the heatmap
+    // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
+    //                     numWindows, 0, 1, nullptr, ImPlotPoint(0, 0),
+    //                     ImPlotPoint(numWindows, numFreqBins));
+
+    ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
+                        numWindows, 0, maxSpectrogramValue, nullptr,
+                        ImPlotPoint(0, 0),
+                        ImPlotPoint(numWindows, numFreqBins));
+
+    ImPlot::EndPlot();
+  }
+}
+
+// Function to show the audio waveform
 void ShowAudioWaveform() {
   static float t = ImGui::GetTime();
   static float history = 0.1f; // Show 0.1 seconds of history
@@ -85,41 +194,55 @@ void ShowAudioWaveform() {
   t = ImGui::GetTime();
 }
 
-const int SAMPLE_COUNT = 1000;
-std::vector<double> xs(SAMPLE_COUNT);
-std::vector<double> ys(SAMPLE_COUNT);
-double t = 0;
+// Function to show the spectrogram
+// void ShowSpectrogram() {
+//   std::lock_guard<std::mutex> lock(audioData.mutex);
+//   if (audioData.buffer.size() >= windowSize) {
+//     std::vector<float> audioBuffer(audioData.buffer.begin(),
+//                                    audioData.buffer.end());
+//     computeSpectrogram(audioBuffer, windowSize, hopSize, fftSize,
+//                        spectrogramData);
+//   }
 
-// Parameters for the sine wave
-static float frequency = 2.0f;
-static float amplitude = 1.0f;
-static float speed = 0.05f;
+//   if (!spectrogramData.empty()) {
+//     ImGui::Begin("Spectrogram");
+    
+//     plotSpectrogram(spectrogramData);
+//     ImGui::End();
+//   }
+// }
 
-void GenerateSineWave() {
-  for (int i = 0; i < SAMPLE_COUNT; ++i) {
-    xs[i] = i * (10.0 / SAMPLE_COUNT);
-    ys[i] = amplitude * std::sin(2 * M_PI * frequency * (xs[i] - t));
+void ShowSpectrogram() {
+  std::vector<float> audioBuffer;
+
+  // Lock the mutex and copy the buffer to avoid holding the lock for too long
+  {
+    std::lock_guard<std::mutex> lock(audioData.mutex);
+    if (audioData.buffer.size() >= windowSize) {
+      audioBuffer.assign(audioData.buffer.begin(), audioData.buffer.end());
+    }
   }
-  t += speed; // This creates the movement effect
+
+  // Check if we have enough data to compute the spectrogram
+  if (audioBuffer.size() >= windowSize) {
+    // Compute the spectrogram
+    computeSpectrogram(audioBuffer, windowSize, hopSize, fftSize,
+                       spectrogramData);
+
+    // Normalize the computed spectrogram
+    normalizeSpectrogram(spectrogramData);
+
+    // Display the spectrogram
+    if (!spectrogramData.empty()) {
+      ImGui::Begin("Spectrogram");
+      plotSpectrogram(spectrogramData);
+      ImGui::End();
+    }
+  }
 }
 
-void ShowMovingSineWave() {
-  // Controls for frequency and amplitude
-  ImGui::SliderFloat("Frequency", &frequency, 0.1f, 10.0f, "%.1f Hz");
-  ImGui::SliderFloat("Amplitude", &amplitude, 0.1f, 2.0f, "%.1f");
-  ImGui::SliderFloat("Speed", &speed, 0.01f, 0.2f, "%.2f");
 
-  GenerateSineWave();
-
-  if (ImPlot::BeginPlot("Moving Sine Wave")) {
-    ImPlot::SetupAxes("Time", "Amplitude");
-    ImPlot::SetupAxisLimits(ImAxis_X1, 0, 10, ImGuiCond_Always);
-    ImPlot::SetupAxisLimits(ImAxis_Y1, -2, 2, ImGuiCond_Always);
-    ImPlot::PlotLine("Sine Wave", xs.data(), ys.data(), SAMPLE_COUNT);
-    ImPlot::EndPlot();
-  }
-}
-
+// Main function
 int main(int, char **) {
   // Setup SDL
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) !=
@@ -171,7 +294,7 @@ int main(int, char **) {
   SDL_GL_MakeCurrent(window, gl_context);
   SDL_GL_SetSwapInterval(1); // Enable vsync
 
-  // Setup Dear ImGui context
+  // Setup ImGui context
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -195,7 +318,6 @@ int main(int, char **) {
   ////////////////////////////
   // Setup ImPlot context
   ImPlot::CreateContext();
-  /////////////////////////////
 
   // Setup Dear ImGui style
   ImGui::StyleColorsDark();
@@ -208,14 +330,12 @@ int main(int, char **) {
   const char *client_name = "imgui_audio";
   jack_options_t options = JackNullOption;
   client = jack_client_open(client_name, options, nullptr);
-
   if (!client) {
     fprintf(stderr, "Could not create JACK client\n");
     return 1;
   }
 
   jack_set_process_callback(client, jackCallback, &audioData);
-
   input_port = jack_port_register(client, "input", JACK_DEFAULT_AUDIO_TYPE,
                                   JackPortIsInput, 0);
   if (!input_port) {
@@ -230,7 +350,6 @@ int main(int, char **) {
     return 1;
   }
 
-  // ! Connect input port to the system's input
   const char **ports = jack_get_ports(client, nullptr, nullptr,
                                       JackPortIsPhysical | JackPortIsOutput);
   if (!ports) {
@@ -245,13 +364,8 @@ int main(int, char **) {
 
   free(ports);
 
-
-
-
-  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  // ! Main loop
+  // Main loop
   bool done = false;
-
   while (!done) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -278,13 +392,14 @@ int main(int, char **) {
     if (show_demo_window)
       ImGui::ShowDemoWindow(&show_demo_window);
 
-    // Show the audio visualizer and sine wave example
+    // Show the audio waveform
     ImGui::Begin("Audio Visualizer");
     ShowAudioWaveform();
     ImGui::End();
 
-    ImGui::Begin("Sine Wave Example");
-    ShowMovingSineWave();
+    // Show the spectrogram
+    ImGui::Begin("Spectrum Visualizer");
+    ShowSpectrogram();
     ImGui::End();
 
     // Rendering
@@ -321,5 +436,3 @@ int main(int, char **) {
 
   return 0;
 }
-
-// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

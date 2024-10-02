@@ -29,6 +29,10 @@ set(OpenGL_GL_PREFERENCE GLVND)
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 
+# Manually link FFTW since find_package(FFTW) did not work
+set(FFTW_LIB /usr/lib64/libfftw3f.so)
+find_library(FFTW_LIB NAMES fftw3f PATHS /usr/lib64)
+
 # Source files
 set(SOURCES
     main.cpp
@@ -61,6 +65,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARIES}
     OpenGL::GL
     ${JACK_LIBRARIES}
+    ${FFTW_LIB}
 )
 
 # Platform-specific settings

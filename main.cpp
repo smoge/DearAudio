@@ -106,35 +106,64 @@ void normalizeSpectrogram(std::vector<std::vector<float>> &spectrogram) {
 int maxSpectrogramValue = 1.0f;
 
 // Function to plot the spectrogram
-void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
+// void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram) {
+//   int numWindows = spectrogram.size();
+//   int numFreqBins = spectrogram[0].size();
+
+//   // Flatten the 2D data for ImPlot's heatmap
+//   std::vector<float> heatmapData;
+//   for (const auto &window : spectrogram) {
+//     heatmapData.insert(heatmapData.end(), window.begin(), window.end());
+//   }
+
+//   if (ImPlot::BeginPlot("Spectrogram")) {
+//     ImPlot::SetupAxes("Time", "Frequency");
+//     ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows);
+//     ImPlot::SetupAxisLimits(ImAxis_Y1, 1, numFreqBins);
+
+//     // Plot the heatmap
+//     // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(),
+//     // numFreqBins,
+//     //                     numWindows, 0, 1, nullptr, ImPlotPoint(0, 0),
+//     //                     ImPlotPoint(numWindows, numFreqBins));
+
+//     ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
+//                         numWindows, 0, maxSpectrogramValue, nullptr,
+//                         ImPlotPoint(0, 0),
+//                         ImPlotPoint(numWindows, numFreqBins));
+
+//     ImPlot::EndPlot();
+//   }
+// }
+
+void plotSpectrogram(const std::vector<std::vector<float>> &spectrogram
+                     ) {
+                      
   int numWindows = spectrogram.size();
   int numFreqBins = spectrogram[0].size();
 
-  // Flatten the 2D data for ImPlot's heatmap
-  std::vector<float> heatmapData;
+  float minVal = 0.0f;
+  float maxVal = 1.0f;
+                    // Flatten the 2D data for ImPlot's heatmap
+                    std::vector<float>
+                        heatmapData;
   for (const auto &window : spectrogram) {
     heatmapData.insert(heatmapData.end(), window.begin(), window.end());
   }
 
   if (ImPlot::BeginPlot("Spectrogram")) {
-    ImPlot::SetupAxes("Time", "Frequency");
-    ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows);
-    ImPlot::SetupAxisLimits(ImAxis_Y1, 1, numFreqBins);
-
-    // Plot the heatmap
-    // ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(),
-    // numFreqBins,
-    //                     numWindows, 0, 1, nullptr, ImPlotPoint(0, 0),
-    //                     ImPlotPoint(numWindows, numFreqBins));
+    ImPlot::SetupAxes("Time (s)", "Frequency (Hz)");
+    ImPlot::SetupAxisLimits(ImAxis_X1, 0, numWindows); // X axis: time windows
+    ImPlot::SetupAxisLimits(ImAxis_Y1, 0,
+                            numFreqBins); // Y axis: frequency bins
 
     ImPlot::PlotHeatmap("Spectrogram Heatmap", heatmapData.data(), numFreqBins,
-                        numWindows, 0, maxSpectrogramValue, nullptr,
-                        ImPlotPoint(0, 0),
+                        numWindows, minVal, maxVal, nullptr, ImPlotPoint(0, 0),
                         ImPlotPoint(numWindows, numFreqBins));
-
     ImPlot::EndPlot();
   }
 }
+
 
 // Function to show the audio waveform
 void ShowAudioWaveform() {

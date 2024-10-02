@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstddef>
 #include <jack/jack.h>
+#include <span>
 #include <stdio.h>
 #include <type_traits>
 #include <vector>
@@ -70,6 +71,12 @@ public:
     std::size_t size() const
     {
         return (head + max_size - tail.load()) % max_size;
+    }
+
+    std::span<const T> get_span() const
+    {
+        std::size_t current_tail = tail.load();
+        return std::span<const T>(buffer.data() + current_tail, size());
     }
 
 private:

@@ -242,7 +242,7 @@ int main(int, char**)
         fprintf(stderr, "Cannot connect input port\n");
     }
 
-    free(ports);
+    jack_free(ports);
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {

@@ -24,9 +24,9 @@ jack_client_t *client;
 jack_port_t *input_port;
 
 // Spectrogram settings
-static const int windowSize = 2048;
-static const int hopSize = 64;
-static const int fftSize = 4096;
+static const int windowSize = 1024;
+static const int hopSize = 256;
+static const int fftSize = 1024;
 std::vector<std::vector<float>> spectrogramData;
 
 // Process callback for JACK

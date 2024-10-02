@@ -16,9 +16,9 @@ set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/implot)
 # Find SDL2
 find_package(SDL2 REQUIRED)
 
-# Find PortAudio
+# Find JACK
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
+pkg_check_modules(JACK REQUIRED jack)
 
 # Set OpenGL preference to GLVND
 if(POLICY CMP0072)
@@ -53,14 +53,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}/backends
     ${SDL2_INCLUDE_DIRS}
     ${IMPLOT_DIR}
-    ${PORTAUDIO_INCLUDE_DIRS}
+    ${JACK_INCLUDE_DIRS}
 )
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${SDL2_LIBRARIES}
     OpenGL::GL
-    ${PORTAUDIO_LIBRARIES}
+    ${JACK_LIBRARIES}
 )
 
 # Platform-specific settings

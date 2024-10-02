@@ -29,16 +29,18 @@ public:
   }
 
   // Push to buffer, overwriting old data if full
-  void push(T value) noexcept {
-    std::size_t next = (head + 1) % max_size;
-    if (next != tail.load()) {
-      buffer[head] = value;
-      head = next;
+  void push(T value) {
+    std::size_t h = head.load(std::memory_order_relaxed);
+    std::size_t next = (h + 1) % max_size;
+    if (next != tail.load(std::memory_order_acquire)) {
+      buffer[h] = value;
+      head.store(next, std::memory_order_release);
     } else {
       // Overwrite the oldest value if the buffer is full
-      tail.store((tail.load() + 1) % max_size);
-      buffer[head] = value;
-      head = next;
+      tail.store((tail.load(std::memory_order_relaxed) + 1) % max_size,
+                 std::memory_order_release);
+      buffer[h] = value;
+      head.store(next, std::memory_order_release);
     }
   }
 
@@ -61,7 +63,6 @@ public:
     return true;
   }
 
-
   std::size_t size() const {
     std::size_t h = head.load(std::memory_order_relaxed);
     std::size_t t = tail.load(std::memory_order_relaxed);
@@ -82,8 +83,6 @@ private:
 
 constexpr float HISTORY = 5.0f; // 5 seconds of history
 
-
-
 struct AudioData {
   lock_free_circular_buffer<float> buffer;
   std::atomic<uint64_t> total_samples{0};
@@ -92,9 +91,7 @@ struct AudioData {
   AudioData(std::size_t size, int sr) : buffer(size), sample_rate(sr) {}
 };
 
-
 AudioData *g_audioData = nullptr;
-
 
 jack_client_t *client;
 jack_port_t *input_port;
@@ -116,7 +113,6 @@ int jack_callback(jack_nframes_t nframes, void *arg) {
 // Declare these variables outside the function
 static std::vector<float> x;
 static std::vector<float> y;
-
 
 void show_audio_waveform() {
   static std::vector<float> x;
@@ -247,7 +243,6 @@ int main(int, char **) {
   size_t buffer_size = sample_rate * HISTORY; // Buffer for HISTORY seconds
 
   // Initialize AudioData with the correct sample rate
-  // g_audioData = new AudioData(buffer_size, sample_rate);
   g_audioData = new (std::nothrow) AudioData(buffer_size, sample_rate);
   if (!g_audioData) {
     fprintf(stderr, "Failed to allocate AudioData\n");

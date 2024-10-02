@@ -180,7 +180,7 @@ int main(int, char **) {
 
   // ! Load custom font
   ImFont *font = io.Fonts->AddFontFromFileTTF(
-      "/home/smoge/tmp/imgui/misc/fonts/Roboto-Medium.ttf", 16.0f);
+      "../fonts/Roboto-Medium.ttf", 16.0f);
   IM_ASSERT(font != NULL);
 
   io.ConfigFlags |=

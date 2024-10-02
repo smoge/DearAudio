@@ -91,18 +91,18 @@ struct AudioData {
     explicit AudioData(std::size_t size) : buffer(size) {}
 };
 
-AudioData audioData(44100 * 10); // Buffer size for 10 seconds of audio at 44100hz
+AudioData audio_data(44100 * 10); // Buffer size for 10 seconds of audio at 44100hz
 jack_client_t* client;
 jack_port_t* input_port;
 
 // Process callback for JACK (real-time thread)
-int jackCallback(jack_nframes_t nframes, void* arg)
+int jack_callback(jack_nframes_t nframes, void* arg)
 {
     jack_default_audio_sample_t* in =
         (jack_default_audio_sample_t*)jack_port_get_buffer(input_port, nframes);
 
     for (jack_nframes_t i = 0; i < nframes; ++i) {
-        audioData.buffer.push(in[i]); // Lock-free push
+        audio_data.buffer.push(in[i]); // Lock-free push
     }
 
     return 0;
@@ -111,7 +111,7 @@ int jackCallback(jack_nframes_t nframes, void* arg)
 // Declare these variables outside the function
 static std::vector<float> x;
 static std::vector<float> y;
-static float timeOffset = 0.0f; // Keeps track of the global time offset
+static float time_offset = 0.0f; // Keeps track of the global time offset
 
 void show_audio_waveform()
 {
@@ -120,12 +120,12 @@ void show_audio_waveform()
     static float history = 5.0f; // 5 seconds of history
 
     // Increment time offset by the time difference based on the audio buffer
-    std::size_t buffer_size = audioData.buffer.size();
-    float timeIncrement = buffer_size / 44100.0f;
-    timeOffset += timeIncrement;
+    std::size_t buffer_size = audio_data.buffer.size();
+    float time_increment = buffer_size / 44100.0f;
+    time_offset += time_increment;
 
     if (ImPlot::BeginPlot("Audio Waveform")) {
-        ImPlot::SetupAxisLimits(ImAxis_X1, timeOffset - history, timeOffset, ImGuiCond_Always);
+        ImPlot::SetupAxisLimits(ImAxis_X1, time_offset - history, time_offset, ImGuiCond_Always);
         ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f);
 
         // Resize the vectors if necessary
@@ -134,9 +134,9 @@ void show_audio_waveform()
 
         float sample;
         for (std::size_t i = 0; i < buffer_size; ++i) {
-            if (audioData.buffer.peek(i, sample)) {
+            if (audio_data.buffer.peek(i, sample)) {
                 // Align the time with the buffer and the sample rate
-                float time = timeOffset - ((buffer_size - i) / 44100.0f);
+                float time = time_offset - ((buffer_size - i) / 44100.0f);
                 x[i] = time;
                 y[i] = sample;
             }
@@ -223,7 +223,7 @@ int main(int, char**)
         return 1;
     }
 
-    jack_set_process_callback(client, jackCallback, &audioData);
+    jack_set_process_callback(client, jack_callback, &audio_data);
     input_port = jack_port_register(client, "input", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
     if (!input_port) {
         fprintf(stderr, "Could not register input port\n");

@@ -49,6 +49,7 @@ public:
         tail_.store((tail + 1) % max_size_, std::memory_order_release);
         return true;
     }
+
     bool peek(std::size_t index, T& value) const noexcept {
         if (index >= size()) {
             return false; // Index out of bounds
@@ -102,7 +103,6 @@ std::unique_ptr<audio_data> global_audio_data;
 jack_client_t* client_;
 jack_port_t* input_port_;
 
-// Process callback for JACK (real-time thread)
 int jack_callback(jack_nframes_t nframes, void* arg) {
     auto* audio = static_cast<audio_data*>(arg);
     const auto* in =
@@ -119,7 +119,7 @@ int jack_callback(jack_nframes_t nframes, void* arg) {
         }
     }
 
-    std::atomic_fetch_add(&audio->total_samples_, frames_to_copy);
+    audio->total_samples_.fetch_add(frames_to_copy, std::memory_order_relaxed);
 
     return (frames_to_copy < static_cast<size_t>(nframes)) ? 1 : 0;
 }
@@ -129,11 +129,10 @@ static std::vector<float> y_vals;
 
 void show_audio_waveform() {
     if (!global_audio_data) {
-        return; // Safety check
+        return;
     }
 
     uint64_t total_samples = global_audio_data->total_samples_.load(std::memory_order_relaxed);
-
     float current_time = static_cast<float>(total_samples) / global_audio_data->sample_rate_;
 
     auto buffer_span = global_audio_data->buffer_.get_span();
@@ -168,7 +167,6 @@ void show_audio_waveform() {
     }
 }
 
-// GLFW error callback
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
@@ -266,21 +264,17 @@ int main(int, char**) {
 
     jack_free(ports);
 
-    // Main loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        // Start the ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Show the audio waveform visualizer
         ImGui::Begin("Audio Waveform Visualizer");
         show_audio_waveform();
         ImGui::End();
 
-        // Rendering
         ImGui::Render();
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
@@ -289,7 +283,6 @@ int main(int, char**) {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        // Update and render additional platform windows
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             GLFWwindow* backup_current_context = glfwGetCurrentContext();
             ImGui::UpdatePlatformWindows();
@@ -300,10 +293,8 @@ int main(int, char**) {
         glfwSwapBuffers(window);
     }
 
-    // Cleanup JACK
     jack_client_close(client_);
 
-    // Cleanup ImGui resources
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImPlot::DestroyContext();

@@ -4,3 +4,6 @@
 [submodule "implot"]
     path = implot
     url = https://github.com/epezent/implot.git
+[submodule "extern/rapidcheck"]
+	path = extern/rapidcheck
+	url = https://github.com/emil-e/rapidcheck.git

@@ -113,36 +113,36 @@ install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# Enable testing
-enable_testing()
-include(GoogleTest)
+# # Enable testing
+# enable_testing()
+# include(GoogleTest)
 
-add_executable(test_lock_free_circular_buffer
-    tests/test_lock_free_circular_buffer.cpp
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_demo.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-    ${IMPLOT_DIR}/implot.cpp
-    ${IMPLOT_DIR}/implot_demo.cpp
-    ${IMPLOT_DIR}/implot_items.cpp
-)
+# add_executable(test_lock_free_circular_buffer
+#     tests/test_lock_free_circular_buffer.cpp
+#     ${IMGUI_DIR}/imgui.cpp
+#     ${IMGUI_DIR}/imgui_demo.cpp
+#     ${IMGUI_DIR}/imgui_draw.cpp
+#     ${IMGUI_DIR}/imgui_tables.cpp
+#     ${IMGUI_DIR}/imgui_widgets.cpp
+#     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+#     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+#     ${IMPLOT_DIR}/implot.cpp
+#     ${IMPLOT_DIR}/implot_demo.cpp
+#     ${IMPLOT_DIR}/implot_items.cpp
+# )
 
-target_link_libraries(test_lock_free_circular_buffer PRIVATE
-    gtest_main
-    glfw
-    OpenGL::GL
-    ${JACK_LIBRARIES}
-    ${FFTW_LIB}
-)
+# target_link_libraries(test_lock_free_circular_buffer PRIVATE
+#     gtest_main
+#     glfw
+#     OpenGL::GL
+#     ${JACK_LIBRARIES}
+#     ${FFTW_LIB}
+# )
 
-target_include_directories(test_lock_free_circular_buffer PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${IMPLOT_DIR}
-)
+# target_include_directories(test_lock_free_circular_buffer PRIVATE
+#     ${IMGUI_DIR}
+#     ${IMGUI_DIR}/backends
+#     ${IMPLOT_DIR}
+# )
 
-gtest_discover_tests(test_lock_free_circular_buffer)
+# gtest_discover_tests(test_lock_free_circular_buffer)

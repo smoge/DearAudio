@@ -1,7 +1,6 @@
 CompileFlags:
-  Add: [
-    -I${workspaceFolder}/imgui,
-    -I${workspaceFolder}/imgui/backends,
-    -I${workspaceFolder}/implot,
-    -I/usr/include/jack
+  Add: [ "-I${workspaceFolder}/imgui",
+         "-I${workspaceFolder}/imgui/backends",
+         "-I${workspaceFolder}/implot",
+         "-I/usr/include/jack"
   ]

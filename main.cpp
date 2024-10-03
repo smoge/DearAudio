@@ -24,7 +24,6 @@ public:
         static_assert(std::is_arithmetic<T>::value, "T must be a numeric type");
     }
 
-    // Push to buffer, overwriting old data if full
     void push(T value) {
         std::size_t head = head_.load(std::memory_order_relaxed);
         std::size_t next = (head + 1) % max_size_;
@@ -32,41 +31,52 @@ public:
             buffer_[head] = value;
             head_.store(next, std::memory_order_release);
         } else {
-            // Overwrite the oldest value if the buffer is full
-            tail_.store((tail_.load(std::memory_order_relaxed) + 1) % max_size_,
-                        std::memory_order_release);
+            // Buffer is full, overwrite the oldest value
+            std::size_t tail = tail_.load(std::memory_order_relaxed);
+            std::size_t new_tail = (tail + 1) % max_size_;
+            tail_.store(new_tail, std::memory_order_release);
             buffer_[head] = value;
             head_.store(next, std::memory_order_release);
         }
     }
 
-    // Pop from buffer, return false if empty
     bool pop(T& value) noexcept {
-        if (head_ == tail_.load()) {
+        std::size_t tail = tail_.load(std::memory_order_relaxed);
+        if (head_.load(std::memory_order_acquire) == tail) {
             return false; // Buffer empty
         }
-        value = buffer_[tail_];
-        tail_.store((tail_.load() + 1) % max_size_);
+        value = buffer_[tail];
+        tail_.store((tail + 1) % max_size_, std::memory_order_release);
         return true;
     }
-
-    // Peek at buffer, return value at position without consuming it
     bool peek(std::size_t index, T& value) const noexcept {
         if (index >= size()) {
             return false; // Index out of bounds
         }
-        value = buffer_[(tail_.load() + index) % max_size_];
+        value = buffer_[(tail_.load(std::memory_order_acquire) + index) % max_size_];
         return true;
     }
 
-    [[nodiscard]] std::size_t size() const {
+    std::size_t size() const noexcept {
         std::size_t head = head_.load(std::memory_order_relaxed);
         std::size_t tail = tail_.load(std::memory_order_relaxed);
         return (head + max_size_ - tail) % max_size_;
     }
 
-    [[nodiscard]] std::span<const T> get_span() const {
-        std::size_t current_tail = tail_.load();
+    std::size_t capacity() const noexcept { return max_size_; }
+
+    bool is_contiguous() const noexcept {
+        return head_.load(std::memory_order_relaxed) >= tail_.load(std::memory_order_relaxed);
+    }
+
+    void push_back(const T* first, const T* last) {
+        while (first != last) {
+            push(*first++);
+        }
+    }
+
+    std::span<const T> get_span() const {
+        std::size_t current_tail = tail_.load(std::memory_order_acquire);
         return std::span<const T>(buffer_.data() + current_tail, size());
     }
 
@@ -85,7 +95,7 @@ struct audio_data {
     int sample_rate_;
 
     audio_data(std::size_t size, int sr) : buffer_(size), sample_rate_(sr) {}
-} __attribute__((aligned(64)));
+};
 
 std::unique_ptr<audio_data> global_audio_data;
 
@@ -94,16 +104,24 @@ jack_port_t* input_port_;
 
 // Process callback for JACK (real-time thread)
 int jack_callback(jack_nframes_t nframes, void* arg) {
-    auto audio = static_cast<audio_data*>(arg);
-    auto* in =
-        static_cast<jack_default_audio_sample_t*>(jack_port_get_buffer(input_port_, nframes));
+    auto* audio = static_cast<audio_data*>(arg);
+    const auto* in =
+        static_cast<const jack_default_audio_sample_t*>(jack_port_get_buffer(input_port_, nframes));
 
-    for (jack_nframes_t i = 0; i < nframes; ++i) {
-        audio->buffer_.push(in[i]);
+    const size_t available_space = audio->buffer_.capacity() - audio->buffer_.size();
+    const size_t frames_to_copy = std::min(static_cast<size_t>(nframes), available_space);
+
+    if (audio->buffer_.is_contiguous() && frames_to_copy == nframes) {
+        audio->buffer_.push_back(in, in + frames_to_copy);
+    } else {
+        for (size_t i = 0; i < frames_to_copy; ++i) {
+            audio->buffer_.push(in[i]);
+        }
     }
-    audio->total_samples_ += nframes;
 
-    return 0;
+    std::atomic_fetch_add(&audio->total_samples_, frames_to_copy);
+
+    return (frames_to_copy < static_cast<size_t>(nframes)) ? 1 : 0;
 }
 
 static std::vector<float> x_vals;
